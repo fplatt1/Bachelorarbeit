@@ -1,0 +1,23 @@
+[project]
+name = "bachelorarbeit"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "kneed>=0.8.5",
+  "matplotlib>=3.10.7",
+  "numpy>=2.3.4",
+  "plotly>=6.4.0",
+  "ramanspy>=0.2.10",
+  "scikit-learn>=1.7.2",
+  "streamlit>=1.51.0",
+]
+
+[tool.pyright]
+exclude = [".venv"]
+venvPath = ".venv"
+venv = "."
+
+[tool.ty.environment]
+python = "./.venv"
