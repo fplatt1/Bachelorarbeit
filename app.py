@@ -154,41 +154,52 @@ for i in range(clusters.n_clusters):
     )
 st.plotly_chart(fig)
 
-offset = 0
+three_vs_two = st.toggle("3D vs 2D PCA plot", value=True)
+dim_z = 2
+with st.form("my_form"):
+    col1, col2, col3 = st.columns(3)
+    dim_x = col1.number_input("PCA X axis", min_value=0, max_value=n - 1, value=0)
+    dim_y = col2.number_input("PCA Y axis", min_value=0, max_value=n - 1, value=1)
+    if not three_vs_two:
+        dim_z = col3.number_input("PCA Z axis", min_value=0, max_value=n - 1, value=2)
+    submitted = st.form_submit_button("Submit")
+
 t = transformed.reshape(-1, n)
 fig = go.Figure()
-fig.add_trace(
-    go.Scatter3d(
-        x=transformed[..., offset + 0].reshape(-1),
-        y=transformed[..., offset + 1].reshape(-1),
-        z=transformed[..., offset + 2].reshape(-1),
-        mode="markers",
-        marker=dict(
-            size=2,
-            color=clusters.labels_,
-            colorscale="Viridis",
-            opacity=0.8,
-        ),
+if not three_vs_two:
+    fig.add_trace(
+        go.Scatter3d(
+            x=transformed[..., dim_x].reshape(-1),
+            y=transformed[..., dim_y].reshape(-1),
+            z=transformed[..., dim_z].reshape(-1),
+            mode="markers",
+            marker=dict(
+                size=2,
+                color=clusters.labels_,
+                colorscale="Viridis",
+                opacity=0.8,
+            ),
+        )
     )
-)
-fig.update_layout(
-    height=1000,
-)
-st.plotly_chart(fig)
-fig = go.Figure()
-fig.add_trace(
-    go.Scatter(
-        x=transformed[..., offset + 0].reshape(-1),
-        y=transformed[..., offset + 1].reshape(-1),
-        mode="markers",
-        marker=dict(
-            size=2,
-            color=clusters.labels_,
-            colorscale="Viridis",
-            opacity=0.8,
-        ),
+    # fig.update_layout(
+    #     height=1000,
+    # )
+    # st.plotly_chart(fig)
+else:
+    # fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=transformed[..., dim_x].reshape(-1),
+            y=transformed[..., dim_y].reshape(-1),
+            mode="markers",
+            marker=dict(
+                size=2,
+                color=clusters.labels_,
+                colorscale="Viridis",
+                opacity=0.8,
+            ),
+        )
     )
-)
 fig.update_layout(
     height=1000,
 )
