@@ -1,12 +1,9 @@
-import io
 import logging
 
 import numpy as np
 import streamlit as st
 from plotly import graph_objs as go
 
-# Importiere die neuen Analysefunktionen aus deiner modifizierten Datei
-# Stelle sicher, dass die Datei 'funktionen_streamlit.py' im selben Ordner liegt
 try:
     from funktionen_streamlit import run_pca_dbscan_analysis, run_pca_k_mean_analysis
 except ImportError:
@@ -29,15 +26,14 @@ def analyze(file_bytes, analysis_method: str):
     match analysis_method:
         case "K-Means":
             results = run_pca_k_mean_analysis(file_bytes)
-        # case "DBSCAN":
-        #     results = run_pca_dbscan_analysis(file_bytes)
+        case "DBSCAN":
+            results = run_pca_dbscan_analysis(file_bytes)
         case _:
             raise Exception("Unbekannte Analyse-Methode ausgewählt.")
     return results
 
 
 def plot_cluster_map(cluster_map, unique_labels, title):
-    """Erstellt die Cluster-Map-Figur für Streamlit."""
     fig = go.Figure()
     fig.add_trace(
         go.Heatmap(

@@ -46,7 +46,7 @@ def Laden_Vorverarbeitung(Dateipfad):
 
     if karte_graphen.spectral_data.shape[-1] == 0:
         raise ValueError(
-            f"Der Graphen-Bereich (1200-3500 cm⁻¹) enthält keine Datenpunkte."
+            "Der Graphen-Bereich (1200-3500 cm⁻¹) enthält keine Datenpunkte."
         )
 
     si_referenz_intensitaet = karte_silizium.spectral_data.max()
@@ -87,8 +87,8 @@ def PCA(valid_mask_1d, preprocessed_image, h, w, variance_threshold=0.90):
     scores_np = pca_model.fit_transform(data_for_pca)
     loadings = pca_model.components_
 
-    explained_variance = pca_model.explained_variance_ratio_
-    cumulative_variance = np.cumsum(explained_variance)
+    # explained_variance = pca_model.explained_variance_ratio_
+    # cumulative_variance = np.cumsum(explained_variance)
     optimal_pcs = pca_model.n_components_
 
     final_scores = scores_np[:, :optimal_pcs].T
