@@ -34,14 +34,11 @@ def spectrum_to_image(data, wavenumber, size, percentile_delta=1e-3):
     if st.toggle("Normalized selection", value=True):
         channel_data -= np.mean(channel_data)
         channel_data /= np.std(channel_data)
-    upper_percentile = np.quantile(channel_data, 1 - percentile_delta)
-    lower_percentile = np.quantile(channel_data, percentile_delta)
-    # st.write(
-    #     "Upper percentile:", upper_percentile, "Lower percentile:", lower_percentile
-    # )
-    # st.write("Maximum:", np.max(channel_data), "Minimum:", np.min(channel_data))
-    channel_data[channel_data > upper_percentile] = upper_percentile
-    channel_data[channel_data < lower_percentile] = lower_percentile
+    channel_data = np.clip(
+        channel_data,
+        np.quantile(channel_data, percentile_delta),
+        np.quantile(channel_data, 1 - percentile_delta),
+    )
 
     fig = go.Figure()
     fig.add_trace(
@@ -56,10 +53,11 @@ def spectrum_to_image(data, wavenumber, size, percentile_delta=1e-3):
 
 def image_to_spectrum(data, wavenumber, size, percentile_delta=1e-3):
     average = np.rot90(np.reshape(np.mean(data, axis=1), size[0:2]))
-    upper_percentile = np.quantile(average, 1 - percentile_delta)
-    lower_percentile = np.quantile(average, percentile_delta)
-    average[average > upper_percentile] = upper_percentile
-    average[average < lower_percentile] = lower_percentile
+    average = np.clip(
+        average,
+        np.quantile(average, percentile_delta),
+        np.quantile(average, 1 - percentile_delta),
+    )
     fig = go.Figure()
     fig.add_trace(
         go.Heatmap(

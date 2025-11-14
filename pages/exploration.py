@@ -37,7 +37,8 @@ with st.sidebar:
             "Image to Spectrum",
         ],
     )
-data = gaussian_filter1d(data, sigma=sigma, axis=1)
+if sigma > 0:
+    data = gaussian_filter1d(data, sigma=sigma, axis=1)
 
 match sti_or_its:
     case "Spectrum to Image":
