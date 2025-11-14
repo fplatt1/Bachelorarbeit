@@ -5,10 +5,10 @@ import streamlit as st
 from plotly import graph_objs as go
 
 try:
-    from funktionen_streamlit import run_pca_dbscan_analysis, run_pca_k_mean_analysis
+    from funktionen_streamlit import run_pca_dbscan_analysis, run_feature_engineering_k_mean_analysis
 except ImportError:
     st.error(
-        "Fehler: Die Datei 'funktionen_streamlit.py' konnte nicht gefunden werden. Stelle sicher, dass sie im selben Verzeichnis wie 'app_kmean.py' liegt."
+        "Fehler: Die Datei 'funktionen_streamlit.py' konnte nicht gefunden werden. Stelle sicher, dass sie im selben Verzeichnis wie 'app_cluster.py' liegt."
     )
     st.stop()
 
@@ -25,7 +25,7 @@ logging.basicConfig(
 def analyze(file_bytes, analysis_method: str):
     match analysis_method:
         case "K-Means":
-            results = run_pca_k_mean_analysis(file_bytes)
+            results = run_feature_engineering_k_mean_analysis(file_bytes)
         case "DBSCAN":
             results = run_pca_dbscan_analysis(file_bytes)
         case _:

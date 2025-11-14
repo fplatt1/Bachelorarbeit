@@ -11,6 +11,9 @@ from sklearn.decomposition import PCA as SklearnPCA
 from sklearn.metrics import silhouette_score
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from joblib import Parallel, delayed
+import multiprocessing
 
 logger = logging.getLogger(__name__)
 # logger.handlers.clear()
@@ -22,6 +25,19 @@ logger = logging.getLogger(__name__)
 # console_handler.setFormatter(formatter)
 # logger.addHandler(console_handler)
 
+D_PEAK_FENSTER = (1300, 1400)
+G_PEAK_FENSTER = (1550, 1620)
+TWOD_PEAK_FENSTER = (2600, 2800)
+G_PEAK_REF = 1580
+TWOD_PEAK_REF = 2700
+PMMA_CH_FENSTER = (2800, 3100)
+PMMA_CO_FENSTER = (1720, 1750)
+G_PEAK_PROMINENZ_SCHWELLE = 0.01
+G_BASELINE_FENSTER_LINKS = (1450, 1550)
+G_BASELINE_FENSTER_RECHTS = (1620, 1720)
+
+def lorentzian(x, amplitude, center, width, offset):
+    return offset + (amplitude * (width**2 / ((x - center)**2 + width**2)))
 
 def Laden_Vorverarbeitung(Dateipfad):
     logger.info("Starte Vorverarbeitung...")
@@ -44,22 +60,22 @@ def Laden_Vorverarbeitung(Dateipfad):
     karte_graphen = cropper_graphen.apply(raman_image)
     logger.info(type(karte_graphen))
 
-    if karte_graphen.spectral_data.shape[-1] == 0:
+    if karte_graphen.spectral_data.shape[-1] == 0:  # type: ignore
         raise ValueError(
             "Der Graphen-Bereich (1200-3500 cm⁻¹) enthält keine Datenpunkte."
         )
 
-    si_referenz_intensitaet = karte_silizium.spectral_data.max()
+    si_referenz_intensitaet = karte_silizium.spectral_data.max()    # type: ignore
     logger.info(
         f"Interner Si-Standard (I_Si0) gefunden: {si_referenz_intensitaet:.2f} a.u."
     )
 
     if si_referenz_intensitaet > 0:
-        karte_silizium.spectral_data /= si_referenz_intensitaet
-        karte_graphen.spectral_data /= si_referenz_intensitaet
+        karte_silizium.spectral_data /= si_referenz_intensitaet # type: ignore
+        karte_graphen.spectral_data /= si_referenz_intensitaet  # type: ignore
 
-    h, w, _ = karte_graphen.spectral_data.shape
-    flat_spectra = karte_graphen.spectral_data.reshape((h * w, -1))
+    h, w, _ = karte_graphen.spectral_data.shape     # type: ignore
+    flat_spectra = karte_graphen.spectral_data.reshape((h * w, -1)) # type: ignore
     valid_mask_1d = np.sum(np.abs(flat_spectra), axis=1) > 1e-6
 
     if np.sum(valid_mask_1d) == 0:
@@ -69,32 +85,107 @@ def Laden_Vorverarbeitung(Dateipfad):
     return valid_mask_1d, karte_silizium, karte_graphen, h, w
 
 
-def PCA(valid_mask_1d, preprocessed_image, h, w, variance_threshold=0.90):
-    logger.info("Starte PCA-Analyse...")
-    valid_mask_2d = valid_mask_1d.reshape((h, w))
+def extrahiere_features_robust(spectrum, spectral_axis):
+    try:
+        # Normiere Zugriff auf y- und x-Werte
+        if hasattr(spectrum, "spectral_data"):
+            y = np.asarray(spectrum.spectral_data, dtype=float)
+        else:
+            y = np.asarray(spectrum, dtype=float)
 
-    image_for_pca = preprocessed_image[valid_mask_2d]
-    data_for_pca = image_for_pca.spectral_data.reshape(
-        -1, image_for_pca.spectral_data.shape[-1]
-    )
+        x = np.asarray(spectral_axis, dtype=float)
 
-    n_components_calc = 100
+        if y.size != x.size or y.size == 0:
+            return [np.nan] * 6
 
-    pca_model = SklearnPCA(
-        n_components=n_components_calc, svd_solver="randomized", random_state=42
-    )
+        # Hilfsfunktionen
+        def safe_mask(window):
+            return (x >= window[0]) & (x <= window[1])
 
-    scores_np = pca_model.fit_transform(data_for_pca)
-    loadings = pca_model.components_
+        def estimate_peak_pos_and_height(xseg, yseg, baseline):
+            if yseg.size == 0:
+                return (np.nan, np.nan)
+            idx = np.nanargmax(yseg)
+            return (xseg[idx], yseg[idx] - baseline)
 
-    # explained_variance = pca_model.explained_variance_ratio_
-    # cumulative_variance = np.cumsum(explained_variance)
-    optimal_pcs = pca_model.n_components_
+        def estimate_fwhm(xseg, yseg):
+            if yseg.size == 0:
+                return np.nan
+            ymax = np.nanmax(yseg)
+            if np.isnan(ymax) or ymax <= 0:
+                return np.nan
+            half = ymax / 2.0
+            inds = np.where(yseg >= half)[0]
+            if inds.size < 2:
+                return np.nan
+            # Linear interpolation to estimate boundaries
+            left = inds[0]
+            right = inds[-1]
+            # interpolate left edge
+            if left == 0:
+                left_x = xseg[left]
+            else:
+                x1, x0 = xseg[left - 1], xseg[left]
+                y1, y0 = yseg[left - 1], yseg[left]
+                if y0 == y1:
+                    left_x = xseg[left]
+                else:
+                    left_x = x1 + (half - y1) * (x0 - x1) / (y0 - y1)
+            # interpolate right edge
+            if right == len(yseg) - 1:
+                right_x = xseg[right]
+            else:
+                x0, x1 = xseg[right], xseg[right + 1]
+                y0, y1 = yseg[right], yseg[right + 1]
+                if y1 == y0:
+                    right_x = xseg[right]
+                else:
+                    right_x = x0 + (half - y0) * (x1 - x0) / (y1 - y0)
+            return abs(right_x - left_x)
 
-    final_scores = scores_np[:, :optimal_pcs].T
-    final_loadings = loadings[:optimal_pcs, :]
+        # Baseline: mittlerer Wert der linken und rechten Baseline-Fenster
+        baseline_left_mask = safe_mask(G_BASELINE_FENSTER_LINKS)
+        baseline_right_mask = safe_mask(G_BASELINE_FENSTER_RECHTS)
+        left_mean = np.nanmean(y[baseline_left_mask]) if baseline_left_mask.any() else 0.0
+        right_mean = np.nanmean(y[baseline_right_mask]) if baseline_right_mask.any() else 0.0
+        baseline = (left_mean + right_mean) / 2.0
 
-    return final_scores, final_loadings, optimal_pcs
+        # G-Peak
+        g_mask = safe_mask(G_PEAK_FENSTER)
+        if not g_mask.any():
+            return [np.nan] * 6
+        xg, yg = x[g_mask], y[g_mask]
+        pos_g, g_amp = estimate_peak_pos_and_height(xg, yg, baseline)
+        if np.isnan(g_amp) or g_amp < G_PEAK_PROMINENZ_SCHWELLE:
+            return [np.nan] * 6
+
+        # 2D-Peak
+        mask_2d = safe_mask(TWOD_PEAK_FENSTER)
+        x2d, y2d = x[mask_2d], y[mask_2d]
+        pos_2d, twod_amp = estimate_peak_pos_and_height(x2d, y2d, baseline)
+        fwhm_2d = estimate_fwhm(x2d, y2d)
+
+        # D-Peak
+        d_mask = safe_mask(D_PEAK_FENSTER)
+        yd = y[d_mask] if d_mask.any() else np.array([])
+        d_amp = np.nanmax(yd) - baseline if yd.size > 0 else 0.0
+
+        # PMMA bands
+        pmma_ch_mask = safe_mask(PMMA_CH_FENSTER)
+        pmma_co_mask = safe_mask(PMMA_CO_FENSTER)
+        pmma_ch = np.nanmean(y[pmma_ch_mask] - baseline) if pmma_ch_mask.any() else 0.0
+        pmma_co = np.nanmean(y[pmma_co_mask] - baseline) if pmma_co_mask.any() else 0.0
+
+        # Ratios
+        ig = g_amp if g_amp > 0 else np.nan
+        id_ig_ratio = (d_amp / ig) if not np.isnan(ig) and ig != 0 else np.nan
+        i2d_ig_ratio = (twod_amp / ig) if not np.isnan(ig) and ig != 0 else np.nan
+        pmma_ratio = ((pmma_ch + pmma_co) / ig) if not np.isnan(ig) and ig != 0 else np.nan
+
+        return [id_ig_ratio, fwhm_2d, i2d_ig_ratio, pos_g, pos_2d, pmma_ratio]
+
+    except Exception:
+        return [np.nan] * 6
 
 
 def finde_optimales_k(daten, k_max=10):
@@ -230,7 +321,7 @@ def identifiziere_cluster(
 
     G_PEAK_REF = 1580
     TWOD_PEAK_REF = 2700
-    SHIFT_THRESHOLD = 10
+    SHIFT_THRESHOLD = 5
 
     PMMA_CH_FENSTER = (2800, 3100)
     PMMA_CO_FENSTER = (1720, 1750)
@@ -378,7 +469,7 @@ def identifiziere_cluster(
 
         else:
             spectrum_silizium = mean_spectra_silizium[i]
-            si_mask = (spectrum_silizium.spectral_axis >= SI_PEAK_FENSTER) & (
+            si_mask = (spectrum_silizium.spectral_axis >= SI_PEAK_FENSTER[0]) & (
                 spectrum_silizium.spectral_axis <= SI_PEAK_FENSTER[1]
             )
             si_verhaeltnis = (
@@ -456,87 +547,113 @@ def finde_besten_eps(scores, min_samples):
     return optimal_eps
 
 
-def run_pca_k_mean_analysis(file_bytes):
-    """
-    Führt die PCA-K-Mean-Analyse aus und gibt Plot-Daten zurück.
-    Akzeptiert file_bytes von st.file_uploader.
-    """
+def run_feature_engineering_k_mean_analysis(file_bytes):
     try:
-        # Erstelle eine temporäre Datei, um die Bytes zu speichern
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mat") as temp_file:
             temp_file.write(file_bytes)
             temp_file_path = temp_file.name
 
-        logger.info(f"Temporäre Datei erstellt: {temp_file_path}")
-
-        # Schritt 1: Lade und verarbeite die Raman-Karte.
-        valid_mask_1d, karte_silizium, karte_graphen, h, w = Laden_Vorverarbeitung(
-            temp_file_path
-        )
-
-        # Schritt 2: Trenne Graphen-Spektren von Substrat-Spektren
+        # --- 1. DATENLADEN & FILTERN (unverändert zu Listing 3.6) ---
+        logger.info("Starte Vorverarbeitung...")
+        valid_mask_1d, karte_silizium, karte_graphen, h, w = \
+            Laden_Vorverarbeitung(temp_file_path)
+        
+        logger.info("Filtere Spektren: Trenne Graphen von Substrat...")
         graphen_mask_1d, substrat_mask_1d = filtere_graphen_spektren(
-            karte_graphen, valid_mask_1d, h, w
+            karte_graphen, valid_mask_1d, h, w)
+        logger.info(f"  {np.sum(graphen_mask_1d)} Graphen-Spektren und {np.sum(substrat_mask_1d)} Substrat-Spektren gefunden.")
+
+        # --- 2. FEATURE ENGINEERING (ersetzt die alte PCA-Funktion  (p28-29)) ---
+        logger.info("Starte Feature Engineering (Parallel-Extraktion)...")
+        
+        # Bereite die Daten für die parallele Verarbeitung vor
+        graphen_spektren_daten = karte_graphen.spectral_data[graphen_mask_1d.reshape((h, w))] # type: ignore
+        spectral_axis = karte_graphen.spectral_axis # type: ignore
+        
+        num_cores = multiprocessing.cpu_count() 
+        logger.info(f"Nutze {num_cores} CPU-Kerne für {len(graphen_spektren_daten)} Spektren...")
+        
+        # Paralleler Aufruf von 'extrahiere_features_robust' für jedes Spektrum
+        feature_list = Parallel(n_jobs=num_cores)(
+            delayed(extrahiere_features_robust)(spectrum, spectral_axis) 
+            for spectrum in graphen_spektren_daten
         )
+        
+        feature_matrix = np.array(feature_list)
+        logger.info("Feature-Extraktion abgeschlossen.")
 
-        # Schritt 3: PCA nur auf den Graphen-Daten durchführen
-        scores, loadings, optimal_pcs_gefunden = PCA(
-            graphen_mask_1d, karte_graphen, h, w
-        )
+        # --- 3. DATEN BEREINIGEN & SKALIEREN ---
+        # Ersetze 'np.nan' (von fehlgeschlagenen Fits) mit dem Mittelwert der Spalte
+        imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
+        feature_matrix_imputed = imputer.fit_transform(feature_matrix)
+        
+        # Skaliere die Features (extrem wichtig für Clustering!)
+        scaler = StandardScaler()
+        scaled_features = scaler.fit_transform(feature_matrix_imputed)
 
-        # Schritt 4: K-Means-Clustering nur auf den Graphen-Daten durchführen
-        graphen_cluster_labels = K_Mean(graphen_mask_1d, scores, h, w)
+        # --- 4. PCA AUF FEATURES (Wie von Ihnen gewünscht) ---
+        # Diese PCA  (p27-29) ist jetzt sauber (6 Dimensionen -> 3-4)
+        logger.info("Starte PCA auf extrahierten Features...")
+        # n_components=0.95 (95% Varianz)  (p27) und svd_solver='full' (da D < N)
+        pca = SklearnPCA(n_components=1, svd_solver='full', random_state=42)
+        scores_np = pca.fit_transform(scaled_features)
+        
+        optimal_pcs_gefunden = pca.n_components_
+        logger.info(f"PCA auf Features abgeschlossen. {optimal_pcs_gefunden} PCs erklären 95% der Varianz.")
+        
+        # K-Means (Listing 3.5)  (p30) erwartet (Features, Samples), also transponieren
+        final_scores = scores_np.T
 
-        # Schritt 5: Erstelle die finale Cluster-Karte
+        # --- 5. K-MEANS CLUSTERING (identisch zu Listing 3.6, Zeile 11)  (p31) ---
+        logger.info("Starte K-Means-Clustering auf Feature-Scores...")
+        graphen_cluster_labels = K_Mean(graphen_mask_1d, final_scores, h, w) 
+        # (K_Mean  (p30) enthält bereits Silhouetten-Analyse  (p29) etc.)
+
+        # --- 6. ERGEBNISSE BERECHNEN (identisch zu Listing 3.6)  (p31-32) ---
         logger.info("Kombiniere Ergebnisse zu finaler Cluster-Karte...")
-        final_cluster_map_1d = np.full(h * w, np.nan)
-        SUBSTRAT_LABEL = 0
+        final_cluster_map_1d = np.full(h*w, np.nan)
+        SUBSTRAT_LABEL = 0 # Ihr K-Means Substrat-Label aus Listing 3.6  (p31)
         final_cluster_map_1d[substrat_mask_1d] = SUBSTRAT_LABEL
-        final_cluster_map_1d[graphen_mask_1d] = graphen_cluster_labels + 1
+        final_cluster_map_1d[graphen_mask_1d] = graphen_cluster_labels + 1 # +1, da 0 für Substrat reserviert ist
+        
         final_cluster_map_2d = final_cluster_map_1d.reshape((h, w))
 
-        # Schritt 6: Berechne mittlere Spektren
         logger.info("Berechne mittlere Spektren für jeden finalen Cluster...")
-        unique_final_labels = sorted(
-            [label for label in np.unique(final_cluster_map_1d) if not np.isnan(label)]
-        )
-
+        unique_final_labels = sorted([label for label in np.unique(
+            final_cluster_map_1d) if not np.isnan(label)])
+        
         mean_spectra_graphen = []
         mean_spectra_silizium = []
         gefundene_cluster_ids = []
 
         for label in unique_final_labels:
-            cluster_mask_1d = final_cluster_map_1d == label
+            cluster_mask_1d = (final_cluster_map_1d == label)
             cluster_mask_2d = cluster_mask_1d.reshape((h, w))
-
             if np.any(cluster_mask_2d):
                 mean_spectra_graphen.append(karte_graphen[cluster_mask_2d].mean)
                 mean_spectra_silizium.append(karte_silizium[cluster_mask_2d].mean)
                 gefundene_cluster_ids.append(int(label))
+        
+        logger.info("Starte finale, hierarchische Identifizierung (inkl. PMMA/Strain/Doping-Check)...")
+        neue_labels_map = identifiziere_cluster(mean_spectra_graphen,
+                                           mean_spectra_silizium, 
+                                           gefundene_cluster_ids, 
+                                           substrat_label=SUBSTRAT_LABEL)
+        logger.info(f"Identifizierung abgeschlossen: {neue_labels_map}")
+        
+        finale_plot_labels = [f"Cluster {original_id}: {neue_labels_map.get(f'Cluster {i}', 'Unbekannt')}"
+                              for i, original_id in enumerate(gefundene_cluster_ids)]
 
-        # Schritt 7: Cluster automatisch identifizieren
-        neue_labels_map = identifiziere_cluster(
-            mean_spectra_graphen,
-            mean_spectra_silizium,
-            gefundene_cluster_ids,
-            substrat_label=SUBSTRAT_LABEL,
-        )
-        finale_plot_labels = [
-            f"Cluster {original_id}: {neue_labels_map.get(f'Cluster {i}', 'Unbekannt')}"
-            for i, original_id in enumerate(gefundene_cluster_ids)
-        ]
-
-        # Schritt 8: Plot-Parameter bestimmen
+        # (Y-Limit-Berechnung aus Listing 3.6  (p31))
         global_max_intensity = 0
         for spectrum in mean_spectra_graphen:
-            current_max = np.max(spectrum.spectral_data)
-            if current_max > global_max_intensity:
-                global_max_intensity = current_max
-
+            if spectrum.spectral_data.size > 0:
+                current_max = np.max(spectrum.spectral_data)
+                if current_max > global_max_intensity: 
+                    global_max_intensity = current_max
         plot_ylim = global_max_intensity * 1.1
-        logger.info(f"  Setze einheitliches Y-Achsen-Limit auf: {plot_ylim:.4f} a.u.")
+        logger.info(f"Setze einheitliches Y-Achsen-Limit auf: {plot_ylim:.4f} a.u.")
 
-        # Schritt 9: Daten für Streamlit zurückgeben
         return {
             "success": True,
             "cluster_map": final_cluster_map_2d,
@@ -544,21 +661,20 @@ def run_pca_k_mean_analysis(file_bytes):
             "mean_spectra": mean_spectra_graphen,
             "plot_labels": finale_plot_labels,
             "y_limit": plot_ylim,
-            "map_title": "Finale Cluster-Karte (K-Mean auf Graphen)",
+            "map_title": "Finale Cluster-Karte (K-Mean auf Features)"
         }
+        
 
     except Exception as e:
-        logger.info(f"FEHLER während der K-Means-Analyse: {e}")
+        logger.error(f"FEHLER während der Feature-Engineering-K-Means-Analyse: {e}")
         import traceback
-
-        logger.info(traceback.format_exc())
+        logger.error(traceback.format_exc())
         return {"success": False, "error": str(e)}
 
     finally:
-        # Bereinige die temporäre Datei
-        if "temp_file_path" in locals() and os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
-            logger.info(f"Temporäre Datei gelöscht: {temp_file_path}")
+        if 'temp_file_path' in locals() and os.path.exists(temp_file_path): # type: ignore
+            os.remove(temp_file_path)   # type: ignore
+            logger.info(f"Temporäre Datei gelöscht: {temp_file_path}")  # type: ignore
 
 
 def run_pca_dbscan_analysis(file_bytes):
@@ -581,7 +697,7 @@ def run_pca_dbscan_analysis(file_bytes):
         )
 
         # Schritt 3: PCA nur auf den Graphen-Daten
-        scores, loadings, optimal_pcs_gefunden = PCA(
+        scores, loadings, optimal_pcs_gefunden = pca(
             graphen_mask_1d, karte_graphen, h, w
         )
 
@@ -670,6 +786,7 @@ def run_pca_dbscan_analysis(file_bytes):
 
     finally:
         # Bereinige die temporäre Datei
-        if "temp_file_path" in locals() and os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
-            logger.info(f"Temporäre Datei gelöscht: {temp_file_path}")
+        if "temp_file_path" in locals() and os.path.exists(temp_file_path): # type: ignore
+            os.remove(temp_file_path)   # type: ignore
+            logger.info(f"Temporäre Datei gelöscht: {temp_file_path}")  # type: ignore
+
