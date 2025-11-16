@@ -726,40 +726,71 @@ def run_pca_dbscan_analysis(file_bytes):
             karte_graphen, valid_mask_1d, h, w
         )
 
-        # Schritt 3: PCA nur auf den Graphen-Daten
-        scores, loadings, optimal_pcs_gefunden = pca(
-            graphen_mask_1d, karte_graphen, h, w
+        # --- Feature-Extraktion wie in run_feature_engineering_k_mean_analysis ---
+        logger.info("Starte Feature-Extraktion für DBSCAN-Analyse...")
+        graphen_spektren_daten = karte_graphen.spectral_data[graphen_mask_1d.reshape((h, w))]  # type: ignore
+        spectral_axis = karte_graphen.spectral_axis  # type: ignore
+        num_cores = multiprocessing.cpu_count()
+        logger.info(f"Nutze {num_cores} CPU-Kerne für {len(graphen_spektren_daten)} Spektren...")
+
+        feature_list = Parallel(n_jobs=num_cores)(
+            delayed(extrahiere_features_robust)(spectrum, spectral_axis)
+            for spectrum in graphen_spektren_daten
         )
 
-        # Schritt 4: Skalierung
-        logger.info("Skaliere PCA-Scores der Graphen-Region für die Cluster-Analyse...")
-        scores_for_scaling = np.array(scores).T
+        feature_matrix = np.array(feature_list)
+
+        # Definiere Feature-Namen und Feature-Maps
+        feature_names = [
+            "I(D)/I(G)",
+            "FWHM(2D)",
+            "I(2D)/I(G)",
+            "Pos(G)",
+            "Pos(2D)",
+            "PMMA_ratio",
+        ]
+
+        try:
+            feature_maps_2d = np.full((h, w, len(feature_names)), np.nan, dtype=float)
+            valid_indices = np.where(graphen_mask_1d)[0]
+            if feature_matrix.ndim == 2 and feature_matrix.shape[0] == len(valid_indices):
+                y_coords, x_coords = np.unravel_index(valid_indices, (h, w))
+                for i in range(len(valid_indices)):
+                    feature_maps_2d[y_coords[i], x_coords[i], :] = feature_matrix[i]
+            else:
+                logger.warning("Feature-Matrix und Graphen-Positionen stimmen nicht überein; Feature-Maps bleiben NaN.")
+        except Exception:
+            feature_maps_2d = None
+            logger.exception("Fehler beim Erstellen der Feature-Maps; setze auf None.")
+
+        logger.info("Feature-Extraktion abgeschlossen.")
+
+        # --- Imputation & Skalierung ---
+        imputer = SimpleImputer(missing_values=np.nan, strategy="mean")
+        feature_matrix_imputed = imputer.fit_transform(feature_matrix)
         scaler = StandardScaler()
-        scaled_scores = scaler.fit_transform(scores_for_scaling)
+        scaled_features = scaler.fit_transform(feature_matrix_imputed)
 
-        # Schritt 5: DBSCAN-Parameter
-        min_samples_auto = 2 * optimal_pcs_gefunden
+        # --- DBSCAN-Parameter finden und Clustering ---
+        min_samples_auto = max(2, 2 * feature_matrix_imputed.shape[1])
         logger.info(f"Bestimme min_samples automatisch: {min_samples_auto}")
-        eps_auto = finde_besten_eps(scaled_scores, min_samples_auto)
+        eps_auto = finde_besten_eps(scaled_features, min_samples_auto)
 
-        # Schritt 6: DBSCAN-Clustering
         graphen_cluster_labels = DBSCAN_Clustering(
-            eps_auto, min_samples_auto, graphen_mask_1d, scaled_scores, h, w
+            eps_auto, min_samples_auto, graphen_mask_1d, scaled_features, h, w
         )
 
-        # Schritt 7: Finale Cluster-Karte
+        # --- Finale Cluster-Karte ---
         logger.info("Kombiniere Ergebnisse zu finaler Cluster-Karte...")
         final_cluster_map_1d = np.full(h * w, np.nan)
-        SUBSTRAT_LABEL = -2  # Fester Wert aus deinem Skript
+        SUBSTRAT_LABEL = -2
         final_cluster_map_1d[substrat_mask_1d] = SUBSTRAT_LABEL
         final_cluster_map_1d[graphen_mask_1d] = graphen_cluster_labels
         final_cluster_map_2d = final_cluster_map_1d.reshape((h, w))
 
-        # Schritt 8: Mittlere Spektren
+        # --- Mittlere Spektren pro Cluster ---
         logger.info("Berechne mittlere Spektren für jeden finalen Cluster...")
-        unique_final_labels = sorted(
-            [label for label in np.unique(final_cluster_map_1d) if not np.isnan(label)]
-        )
+        unique_final_labels = sorted([label for label in np.unique(final_cluster_map_1d) if not np.isnan(label)])
 
         mean_spectra_graphen = []
         mean_spectra_silizium = []
@@ -768,35 +799,28 @@ def run_pca_dbscan_analysis(file_bytes):
         for label in unique_final_labels:
             cluster_mask_1d = final_cluster_map_1d == label
             cluster_mask_2d = cluster_mask_1d.reshape((h, w))
-
             if np.any(cluster_mask_2d):
                 mean_spectra_graphen.append(karte_graphen[cluster_mask_2d].mean)
                 mean_spectra_silizium.append(karte_silizium[cluster_mask_2d].mean)
                 gefundene_cluster_ids.append(int(label))
 
-        # Schritt 9: Cluster identifizieren
+        # --- Cluster-Identifikation ---
         neue_labels_map = identifiziere_cluster(
-            mean_spectra_graphen,
-            mean_spectra_silizium,
-            gefundene_cluster_ids,
-            substrat_label=SUBSTRAT_LABEL,
+            mean_spectra_graphen, mean_spectra_silizium, gefundene_cluster_ids, substrat_label=SUBSTRAT_LABEL
         )
-        finale_plot_labels = [
-            f"Cluster {original_id}: {neue_labels_map.get(f'Cluster {i}', 'Unbekannt')}"
-            for i, original_id in enumerate(gefundene_cluster_ids)
-        ]
+        finale_plot_labels = [f"Cluster {original_id}: {neue_labels_map.get(f'Cluster {i}', 'Unbekannt')}" for i, original_id in enumerate(gefundene_cluster_ids)]
 
-        # Schritt 10: Plot-Parameter
+        # --- Plot-Parameter ---
         global_max_intensity = 0
         for spectrum in mean_spectra_graphen:
-            current_max = np.max(spectrum.spectral_data)
-            if current_max > global_max_intensity:
-                global_max_intensity = current_max
-
+            if spectrum.spectral_data.size > 0:
+                current_max = np.max(spectrum.spectral_data)
+                if current_max > global_max_intensity:
+                    global_max_intensity = current_max
         plot_ylim = global_max_intensity * 1.1
-        logger.info(f"  Setze einheitliches Y-Achsen-Limit auf: {plot_ylim:.4f} a.u.")
+        logger.info(f"Setze einheitliches Y-Achsen-Limit auf: {plot_ylim:.4f} a.u.")
 
-        # Schritt 11: Daten für Streamlit zurückgeben
+        # --- Rückgabe an Streamlit ---
         return {
             "success": True,
             "cluster_map": final_cluster_map_2d,
@@ -804,7 +828,11 @@ def run_pca_dbscan_analysis(file_bytes):
             "mean_spectra": mean_spectra_graphen,
             "plot_labels": finale_plot_labels,
             "y_limit": plot_ylim,
-            "map_title": "Finale Cluster-Karte (DBSCAN auf Graphen)",
+            "map_title": "Finale Cluster-Karte (DBSCAN auf Features)",
+            "feature_maps": feature_maps_2d,
+            "feature_names": feature_names,
+            "feature_matrix": feature_matrix,
+            "feature_matrix_imputed": feature_matrix_imputed,
         }
 
     except Exception as e:
