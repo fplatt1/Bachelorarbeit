@@ -34,20 +34,28 @@ def analyze(file_bytes, analysis_method: str):
 
 
 def plot_cluster_map(cluster_map, unique_labels, title):
+    num_rows, num_cols = cluster_map.shape
+
     fig = go.Figure()
     fig.add_trace(
         go.Heatmap(
-            # z=np.transpose(cluster_map),
             z=np.flipud(cluster_map),
             colorscale="Viridis",
         )
     )
     fig.update_layout(
+        title=title,
         width=800,
         height=800,
+        xaxis=dict(
+            scaleanchor="y", 
+            scaleratio=1,
+            range=[0, num_cols - 1] 
+        ),
         yaxis=dict(
             scaleanchor="x",
             scaleratio=1,
+            range=[0, num_rows - 1]
         ),
     )
     return fig

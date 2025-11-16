@@ -283,10 +283,16 @@ def K_Mean(valid_mask_1d, scores, h, w):
 
     pca_scores_for_clustering = np.array(scores).T
 
+    # Bestimme optimales K mittels Silhouetten-Analyse
     optimal_k = finde_optimales_k(pca_scores_for_clustering, k_max=10)
 
-    logger.info(f"Führe finales K-Means-Clustering mit K={optimal_k} durch...")
-    kmeans_model = KMeans(n_clusters=optimal_k, random_state=42, n_init="auto")
+    # immer ein K mehr verwenden als durch Silhouette vorgeschlagen
+    chosen_k = optimal_k + 1
+    # Grenzen: mindestens 2, höchstens 10 (wie in finde_optimales_k)
+    chosen_k = max(2, min(chosen_k, 10))
+
+    logger.info(f"Silhouette-optimales K={optimal_k}; verwende K={chosen_k} für finalen K-Means.")
+    kmeans_model = KMeans(n_clusters=chosen_k, random_state=42, n_init="auto")
     cluster_labels = kmeans_model.fit_predict(pca_scores_for_clustering)
     return cluster_labels
 
@@ -321,11 +327,11 @@ def identifiziere_cluster(
 
     G_PEAK_REF = 1580
     TWOD_PEAK_REF = 2700
-    SHIFT_THRESHOLD = 5
+    SHIFT_THRESHOLD = 10
 
     PMMA_CH_FENSTER = (2800, 3100)
     PMMA_CO_FENSTER = (1720, 1750)
-    PMMA_SCHWELLE = 3.0
+    PMMA_SCHWELLE = 2.0
 
     cluster_identitaeten = {}
 
@@ -500,14 +506,14 @@ def identifiziere_cluster(
         else:
             shift_ratio = 0
 
-        if delta_pos_g > SHIFT_THRESHOLD and delta_pos_2d > SHIFT_THRESHOLD:
+        if delta_pos_g > SHIFT_THRESHOLD or delta_pos_2d > SHIFT_THRESHOLD:
             if shift_ratio > 2.0:
                 strain_doping_label = ", kompressiv verspannt"
             else:
                 strain_doping_label = ", p-dotiert"
-        elif delta_pos_g < -SHIFT_THRESHOLD and delta_pos_2d < -SHIFT_THRESHOLD:
+        elif delta_pos_g < -SHIFT_THRESHOLD or delta_pos_2d < -SHIFT_THRESHOLD:
             strain_doping_label = ", tensil verspannt"
-        elif delta_pos_g > SHIFT_THRESHOLD and delta_pos_2d < -SHIFT_THRESHOLD:
+        elif delta_pos_g > SHIFT_THRESHOLD or delta_pos_2d < -SHIFT_THRESHOLD:
             strain_doping_label = ", n-dotiert"
 
         cluster_identitaeten[f"Cluster {i}"] = (
