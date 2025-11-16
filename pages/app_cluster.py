@@ -114,6 +114,25 @@ with st.expander("Analyse-Log anzeigen (Terminal-Ausgabe)"):
 if results and results["success"]:
     st.success("Analyse erfolgreich abgeschlossen!")
 
+    # --- Optional: Feature-Maps vor PCA anzeigen ---
+    if results.get("feature_names") and results.get("feature_maps") is not None:
+        st.subheader("Feature-Maps (vor PCA)")
+        feature_names = results["feature_names"]
+        # Auswahl der Feature
+        chosen = st.selectbox("Wähle ein Feature zur Anzeige:", options=feature_names)
+        idx = feature_names.index(chosen)
+        feature_map = results["feature_maps"][:, :, idx]
+
+        def plot_feature_map(feature_map, title, cmap="Viridis"):
+            fig = go.Figure()
+            fig.add_trace(
+                go.Heatmap(z=np.flipud(feature_map), colorscale=cmap, colorbar=dict(title=chosen))
+            )
+            fig.update_layout(width=800, height=800, title=title, yaxis=dict(scaleanchor="x", scaleratio=1))
+            return fig
+
+        st.plotly_chart(plot_feature_map(feature_map, f"Feature: {chosen}"))
+
     # --- Plot 1: Cluster-Karte ---
     st.subheader("Cluster-Karte")
     fig_map = plot_cluster_map(

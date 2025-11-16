@@ -580,6 +580,32 @@ def run_feature_engineering_k_mean_analysis(file_bytes):
         )
         
         feature_matrix = np.array(feature_list)
+
+        # Definiere Feature-Namen (immer 6 Features wie von extrahiere_features_robust)
+        feature_names = [
+            "I(D)/I(G)",
+            "FWHM(2D)",
+            "I(2D)/I(G)",
+            "Pos(G)",
+            "Pos(2D)",
+            "PMMA_ratio",
+        ]
+
+        # Erzeuge 2D-Feature-Maps (h, w, n_features) und fülle die Graphen-Positionen
+        try:
+            feature_maps_2d = np.full((h, w, len(feature_names)), np.nan, dtype=float)
+            # Indizes der gültigen Graphen-Positionen (flach)
+            valid_indices = np.where(graphen_mask_1d)[0]
+            if feature_matrix.ndim == 2 and feature_matrix.shape[0] == len(valid_indices):
+                y_coords, x_coords = np.unravel_index(valid_indices, (h, w))
+                for i in range(len(valid_indices)):
+                    feature_maps_2d[y_coords[i], x_coords[i], :] = feature_matrix[i]
+            else:
+                logger.warning("Feature-Matrix und Graphen-Positionen stimmen nicht überein; Feature-Maps bleiben mit NaN gefüllt.")
+        except Exception:
+            feature_maps_2d = None
+            logger.exception("Fehler beim Erstellen der Feature-Maps; setze auf None.")
+
         logger.info("Feature-Extraktion abgeschlossen.")
 
         # --- 3. DATEN BEREINIGEN & SKALIEREN ---
@@ -661,7 +687,11 @@ def run_feature_engineering_k_mean_analysis(file_bytes):
             "mean_spectra": mean_spectra_graphen,
             "plot_labels": finale_plot_labels,
             "y_limit": plot_ylim,
-            "map_title": "Finale Cluster-Karte (K-Mean auf Features)"
+            "map_title": "Finale Cluster-Karte (K-Mean auf Features)",
+            "feature_maps": feature_maps_2d,
+            "feature_names": feature_names,
+            "feature_matrix": feature_matrix,  # raw extracted features (may contain NaNs)
+            "feature_matrix_imputed": feature_matrix_imputed,
         }
         
 
