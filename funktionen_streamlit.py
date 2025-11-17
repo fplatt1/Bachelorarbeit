@@ -287,7 +287,7 @@ def K_Mean(valid_mask_1d, scores, h, w):
     optimal_k = finde_optimales_k(pca_scores_for_clustering, k_max=10)
 
     # immer ein K mehr verwenden als durch Silhouette vorgeschlagen
-    chosen_k = optimal_k + 1
+    chosen_k = optimal_k
     # Grenzen: mindestens 2, höchstens 10 (wie in finde_optimales_k)
     chosen_k = max(2, min(chosen_k, 10))
 
@@ -693,7 +693,6 @@ def run_feature_engineering_k_mean_analysis(file_bytes):
             "mean_spectra": mean_spectra_graphen,
             "plot_labels": finale_plot_labels,
             "y_limit": plot_ylim,
-            "map_title": "Finale Cluster-Karte (K-Mean auf Features)",
             "feature_maps": feature_maps_2d,
             "feature_names": feature_names,
             "feature_matrix": feature_matrix,  # raw extracted features (may contain NaNs)

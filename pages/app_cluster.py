@@ -33,7 +33,8 @@ def analyze(file_bytes, analysis_method: str):
     return results
 
 
-def plot_cluster_map(cluster_map, unique_labels, title):
+def plot_cluster_map(cluster_map, unique_labels):
+    # 1. Dimensionen holen (genau wie bei Feature Map)
     num_rows, num_cols = cluster_map.shape
 
     fig = go.Figure()
@@ -41,23 +42,38 @@ def plot_cluster_map(cluster_map, unique_labels, title):
         go.Heatmap(
             z=np.flipud(cluster_map),
             colorscale="Viridis",
+            # Einziger Unterschied zur Feature-Map: 
+            # Wir formatieren die Legende für ganze Zahlen (Cluster 0, 1, 2...)
+            colorbar=dict(
+                title="Cluster",
+                tickmode='array',
+                tickvals=unique_labels,
+                ticktext=[str(l) for l in unique_labels]  # noqa: E741
+            )
         )
     )
+    
+    # 2. Layout exakt von deiner funktionierenden Feature-Map übernommen
     fig.update_layout(
-        title=title,
-        width=800,
-        height=800,
+        width=800, 
+        height=800, 
+        
+        
+        # X-Achse begrenzen
         xaxis=dict(
-            scaleanchor="y", 
-            scaleratio=1,
-            range=[0, num_cols - 1] 
+            range=[0, num_cols - 1],
+            constrain="domain" # Verhindert Whitespace
         ),
+        
+        # Y-Achse an X koppeln und begrenzen
         yaxis=dict(
-            scaleanchor="x",
+            scaleanchor="x", 
             scaleratio=1,
-            range=[0, num_rows - 1]
-        ),
+            range=[0, num_rows - 1],
+            constrain="domain"
+        )
     )
+    
     return fig
 
 
@@ -123,28 +139,49 @@ if results and results["success"]:
     st.success("Analyse erfolgreich abgeschlossen!")
 
     # --- Optional: Feature-Maps vor PCA anzeigen ---
-    if results.get("feature_names") and results.get("feature_maps") is not None:
-        st.subheader("Feature-Maps (vor PCA)")
-        feature_names = results["feature_names"]
-        # Auswahl der Feature
-        chosen = st.selectbox("Wähle ein Feature zur Anzeige:", options=feature_names)
-        idx = feature_names.index(chosen)
-        feature_map = results["feature_maps"][:, :, idx]
-
-        def plot_feature_map(feature_map, title, cmap="Viridis"):
-            fig = go.Figure()
-            fig.add_trace(
-                go.Heatmap(z=np.flipud(feature_map), colorscale=cmap, colorbar=dict(title=chosen))
+if results.get("feature_names") and results.get("feature_maps") is not None:
+    st.subheader("Feature-Maps (vor PCA)")
+    feature_names = results["feature_names"]
+    
+    # Auswahl der Feature
+    chosen = st.selectbox("Wähle ein Feature zur Anzeige:", options=feature_names)
+    idx = feature_names.index(chosen)
+    feature_map = results["feature_maps"][:, :, idx]
+    # -----------------------------------------
+    def plot_feature_map(feature_map, title, cmap="Viridis"):
+        # 1. Dimensionen holen
+        num_rows, num_cols = feature_map.shape
+        
+        fig = go.Figure()
+        fig.add_trace(
+            go.Heatmap(z=np.flipud(feature_map), colorscale=cmap, colorbar=dict(title=chosen))
+        )
+        fig.update_layout(
+            width=800, 
+            height=800, 
+            title=title,
+            # X-Achse begrenzen
+            xaxis=dict(
+                range=[0, num_cols - 1],
+                constrain="domain" # Verhindert Whitespace
+            ),
+            # Y-Achse an X koppeln und begrenzen
+            yaxis=dict(
+                scaleanchor="x", 
+                scaleratio=1,
+                range=[0, num_rows - 1],
+                constrain="domain"
             )
-            fig.update_layout(width=800, height=800, title=title, yaxis=dict(scaleanchor="x", scaleratio=1))
-            return fig
+        )
+        return fig
+    # -----------------------------------------
 
-        st.plotly_chart(plot_feature_map(feature_map, f"Feature: {chosen}"))
+    st.plotly_chart(plot_feature_map(feature_map, f"Feature: {chosen}"), use_container_width=False)
 
     # --- Plot 1: Cluster-Karte ---
     st.subheader("Cluster-Karte")
     fig_map = plot_cluster_map(
-        results["cluster_map"], results["unique_labels"], results["map_title"]
+        results["cluster_map"], results["unique_labels"]
     )
     st.plotly_chart(fig_map)
     # st.pyplot(fig_map)
