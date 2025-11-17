@@ -627,7 +627,7 @@ def run_feature_engineering_k_mean_analysis(file_bytes):
         # Diese PCA  (p27-29) ist jetzt sauber (6 Dimensionen -> 3-4)
         logger.info("Starte PCA auf extrahierten Features...")
         # n_components=0.95 (95% Varianz)  (p27) und svd_solver='full' (da D < N)
-        pca = SklearnPCA(n_components=1, svd_solver='full', random_state=42)
+        pca = SklearnPCA(n_components=0.95, svd_solver='full', random_state=42)
         scores_np = pca.fit_transform(scaled_features)
         
         optimal_pcs_gefunden = pca.n_components_
@@ -776,13 +776,22 @@ def run_pca_dbscan_analysis(file_bytes):
         scaler = StandardScaler()
         scaled_features = scaler.fit_transform(feature_matrix_imputed)
 
-        # --- DBSCAN-Parameter finden und Clustering ---
-        min_samples_auto = max(2, 2 * feature_matrix_imputed.shape[1])
-        logger.info(f"Bestimme min_samples automatisch: {min_samples_auto}")
-        eps_auto = finde_besten_eps(scaled_features, min_samples_auto)
+        logger.info("Starte PCA auf extrahierten Features...")
+        pca = SklearnPCA(n_components=0.95, svd_solver='full', random_state=42)
+        scores_np = pca.fit_transform(scaled_features)
+        
+        optimal_pcs_gefunden = pca.n_components_
+        logger.info(f"PCA auf Features abgeschlossen. {optimal_pcs_gefunden} PCs erklären 95% der Varianz.")
+
+
+        D = optimal_pcs_gefunden
+        min_samples_auto = 2 * D
+        logger.info(f"Bestimme min_samples automatisch (2*D): {min_samples_auto}")
+
+        eps_auto = finde_besten_eps(scores_np, min_samples_auto)
 
         graphen_cluster_labels = DBSCAN_Clustering(
-            eps_auto, min_samples_auto, graphen_mask_1d, scaled_features, h, w
+            eps_auto, min_samples_auto, graphen_mask_1d, scores_np, h, w
         )
 
         # --- Finale Cluster-Karte ---
