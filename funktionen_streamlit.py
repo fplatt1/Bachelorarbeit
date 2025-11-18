@@ -14,6 +14,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from joblib import Parallel, delayed
 import multiprocessing
+import plotly.express as px
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 # logger.handlers.clear()
@@ -35,6 +37,66 @@ PMMA_CO_FENSTER = (1720, 1750)
 G_PEAK_PROMINENZ_SCHWELLE = 0.01
 G_BASELINE_FENSTER_LINKS = (1450, 1550)
 G_BASELINE_FENSTER_RECHTS = (1620, 1720)
+
+def plot_3d_cluster_space(pca_scores, labels, algorithm_name, opacity=0.6):
+    """
+    Erstellt einen interaktiven 3D-Scatterplot der ersten 3 Hauptkomponenten.
+    
+    Args:
+        pca_scores (np.array): Das Array mit den PCA-Scores (mindestens 3 Spalten).
+        labels (np.array): Die Cluster-Labels für jeden Punkt.
+        algorithm_name (str): Name des Algorithmus (für den Titel).
+        opacity (float): Transparenz der Punkte (0 bis 1), hilft bei dichten Wolken.
+    """
+    
+    # 1. Daten in einen DataFrame umwandeln für Plotly
+    # Wir nehmen nur die ersten 3 PCs, da wir nur 3D plotten können
+    df = pd.DataFrame(pca_scores[:, :3], columns=['PC1', 'PC2', 'PC3'])
+    
+    # Cluster-Labels als String konvertieren, damit sie als diskrete Farben (Kategorien) behandelt werden
+    # Für DBSCAN: Label -1 explizit als "Rauschen" benennen
+    labels_str = labels.astype(str)
+    if algorithm_name.upper() == "DBSCAN":
+        labels_str = np.where(labels_str == '-1', 'Noise (-1)', labels_str)
+        
+    df['Cluster'] = labels_str
+    
+    # 2. Sortieren, damit die Legende ordentlich ist
+    df = df.sort_values('Cluster')
+
+    # 3. Der 3D Plot
+    fig = px.scatter_3d(
+        df, 
+        x='PC1', 
+        y='PC2', 
+        z='PC3',
+        color='Cluster',
+        title=f'3D-Merkmalsraum Visualisierung: {algorithm_name}',
+        labels={'PC1': 'Hauptkomponente 1 (Varianz)', 'PC2': 'Hauptkomponente 2', 'PC3': 'Hauptkomponente 3'},
+        opacity=opacity,
+        # Diskrete Farbskala nutzen
+        color_discrete_sequence=px.colors.qualitative.G10 
+    )
+
+    # 4. Styling für wissenschaftliche Publikation (Weißer Hintergrund, klare Achsen)
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='PC1',
+            yaxis_title='PC2',
+            zaxis_title='PC3',
+            xaxis=dict(backgroundcolor="white", gridcolor="lightgrey", showbackground=True),
+            yaxis=dict(backgroundcolor="white", gridcolor="lightgrey", showbackground=True),
+            zaxis=dict(backgroundcolor="white", gridcolor="lightgrey", showbackground=True),
+        ),
+        paper_bgcolor="white",
+        font=dict(family="Arial", size=12),
+        margin=dict(l=0, r=0, b=0, t=30)  # Ränder minimieren
+    )
+    
+    # Marker etwas kleiner machen für bessere Sichtbarkeit bei vielen Punkten
+    fig.update_traces(marker=dict(size=3))
+
+    fig.show()
 
 def lorentzian(x, amplitude, center, width, offset):
     return offset + (amplitude * (width**2 / ((x - center)**2 + width**2)))
@@ -640,6 +702,8 @@ def run_feature_engineering_k_mean_analysis(file_bytes):
         logger.info("Starte K-Means-Clustering auf Feature-Scores...")
         graphen_cluster_labels = K_Mean(graphen_mask_1d, final_scores, h, w) 
         # (K_Mean  (p30) enthält bereits Silhouetten-Analyse  (p29) etc.)
+
+        plot_3d_cluster_space(scores_np, graphen_cluster_labels, "K-Means")
 
         # --- 6. ERGEBNISSE BERECHNEN (identisch zu Listing 3.6)  (p31-32) ---
         logger.info("Kombiniere Ergebnisse zu finaler Cluster-Karte...")
