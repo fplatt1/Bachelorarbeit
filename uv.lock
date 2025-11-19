@@ -39,6 +39,8 @@ dependencies = [
     { name = "ramanspy" },
     { name = "scikit-learn" },
     { name = "streamlit" },
+    { name = "sklearn_som" },
+]
 ]
 
 [package.metadata]

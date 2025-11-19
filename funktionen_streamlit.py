@@ -13,19 +13,12 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from joblib import Parallel, delayed
+from sklearn_som.som import SOM
 import multiprocessing
 import plotly.express as px
 import pandas as pd
 
 logger = logging.getLogger(__name__)
-# logger.handlers.clear()
-# console_handler = logging.StreamHandler()
-# formatter = logging.Formatter(
-#     fmt="%(asctime)s - %(levelname)s - %(name)s - %(lineno)d - %(message)s",
-#     datefmt="%Y-%m-%d %H:%M:%S",
-# )
-# console_handler.setFormatter(formatter)
-# logger.addHandler(console_handler)
 
 D_PEAK_FENSTER = (1300, 1400)
 G_PEAK_FENSTER = (1550, 1620)
@@ -146,7 +139,6 @@ def Laden_Vorverarbeitung(Dateipfad):
 
     return valid_mask_1d, karte_silizium, karte_graphen, h, w
 
-
 def extrahiere_features_robust(spectrum, spectral_axis):
     try:
         # Normiere Zugriff auf y- und x-Werte
@@ -249,7 +241,6 @@ def extrahiere_features_robust(spectrum, spectral_axis):
     except Exception:
         return [np.nan] * 6
 
-
 def finde_optimales_k(daten, k_max=10):
     logger.info("Suche nach optimaler Clusteranzahl (K) mittels Silhouetten-Analyse...")
 
@@ -282,7 +273,6 @@ def finde_optimales_k(daten, k_max=10):
     optimal_k = k_range[np.argmax(silhouette_scores)]
     logger.info(f"-> Optimales K gefunden: {optimal_k} (höchster Silhouetten-Score)")
     return optimal_k
-
 
 def filtere_graphen_spektren(karte_graphen, valid_mask_1d, h, w):
     logger.info("Filtere Spektren: Trenne Graphen von Substrat...")
@@ -339,7 +329,6 @@ def filtere_graphen_spektren(karte_graphen, valid_mask_1d, h, w):
 
     return graphen_mask_1d, substrat_mask_1d
 
-
 def K_Mean(valid_mask_1d, scores, h, w):
     logger.info("Starte K-Means-Clustering...")
 
@@ -357,7 +346,6 @@ def K_Mean(valid_mask_1d, scores, h, w):
     kmeans_model = KMeans(n_clusters=chosen_k, random_state=42, n_init="auto")
     cluster_labels = kmeans_model.fit_predict(pca_scores_for_clustering)
     return cluster_labels
-
 
 def identifiziere_cluster(
     mean_spectra_graphen,
@@ -585,7 +573,6 @@ def identifiziere_cluster(
     logger.info("Identifizierung abgeschlossen:", cluster_identitaeten)
     return cluster_identitaeten
 
-
 def DBSCAN_Clustering(eps, min_samples, valid_mask_1d, scaled_scores, h, w):
     logger.info(
         f"Führe DBSCAN-Clustering mit eps={eps:.4f} und min_samples={min_samples} durch..."
@@ -594,7 +581,6 @@ def DBSCAN_Clustering(eps, min_samples, valid_mask_1d, scaled_scores, h, w):
     dbscan_model = DBSCAN(eps=eps, min_samples=min_samples)
     cluster_labels = dbscan_model.fit_predict(scaled_scores)
     return cluster_labels
-
 
 def finde_besten_eps(scores, min_samples):
     logger.info("Bestimme optimalen eps-Wert automatisch...")
@@ -613,7 +599,6 @@ def finde_besten_eps(scores, min_samples):
     optimal_eps = kneedle.knee_y
     logger.info(f"-> Optimaler eps-Wert gefunden: {optimal_eps:.4f}")
     return optimal_eps
-
 
 def run_feature_engineering_k_mean_analysis(file_bytes):
     try:
@@ -775,7 +760,6 @@ def run_feature_engineering_k_mean_analysis(file_bytes):
             os.remove(temp_file_path)   # type: ignore
             logger.info(f"Temporäre Datei gelöscht: {temp_file_path}")  # type: ignore
 
-
 def run_pca_dbscan_analysis(file_bytes):
     try:
         # Erstelle eine temporäre Datei, um die Bytes zu speichern
@@ -926,3 +910,154 @@ def run_pca_dbscan_analysis(file_bytes):
             os.remove(temp_file_path)   # type: ignore
             logger.info(f"Temporäre Datei gelöscht: {temp_file_path}")  # type: ignore
 
+def run_feature_engineering_som_analysis(file_bytes):
+    """
+    Führt eine SOM-Analyse (Self-Organizing Map) auf den PCA-Scores der Features durch.
+    Pipeline: Features -> PCA -> SOM
+    """
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mat") as temp_file:
+            temp_file.write(file_bytes)
+            temp_file_path = temp_file.name
+
+        # --- 1. DATENLADEN & FILTERN (Standard) ---
+        logger.info("Starte Vorverarbeitung...")
+        valid_mask_1d, karte_silizium, karte_graphen, h, w = Laden_Vorverarbeitung(temp_file_path)
+        
+        logger.info("Filtere Spektren: Trenne Graphen von Substrat...")
+        graphen_mask_1d, substrat_mask_1d = filtere_graphen_spektren(karte_graphen, valid_mask_1d, h, w)
+
+        # --- 2. FEATURE ENGINEERING (Standard) ---
+        logger.info("Starte Feature Engineering (Parallel)...")
+        graphen_spektren_daten = karte_graphen.spectral_data[graphen_mask_1d.reshape((h, w))]   # type: ignore
+        spectral_axis = karte_graphen.spectral_axis # type: ignore
+        
+        num_cores = multiprocessing.cpu_count()
+        feature_list = Parallel(n_jobs=num_cores)(
+            delayed(extrahiere_features_robust)(spectrum, spectral_axis) 
+            for spectrum in graphen_spektren_daten
+        )
+        feature_matrix = np.array(feature_list)
+        
+        # Definiere Feature-Namen (WICHTIG FÜR APP)
+        feature_names = [
+            "I(D)/I(G)",
+            "FWHM(2D)",
+            "I(2D)/I(G)",
+            "Pos(G)",
+            "Pos(2D)",
+            "PMMA_ratio",
+        ]
+        
+        # Erzeuge 2D-Feature-Maps für die Visualisierung
+        feature_maps_2d = None
+        try:
+            feature_maps_2d = np.full((h, w, len(feature_names)), np.nan, dtype=float)
+            valid_indices = np.where(graphen_mask_1d)[0]
+            if feature_matrix.ndim == 2 and feature_matrix.shape[0] == len(valid_indices):
+                y_coords, x_coords = np.unravel_index(valid_indices, (h, w))
+                for i in range(len(valid_indices)):
+                    feature_maps_2d[y_coords[i], x_coords[i], :] = feature_matrix[i]
+        except Exception:
+            logger.warning("Feature-Maps konnten nicht erstellt werden.")
+
+
+        # --- 3. BEREINIGEN & SKALIEREN (Standard) ---
+        imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
+        feature_matrix_imputed = imputer.fit_transform(feature_matrix)
+        
+        scaler = StandardScaler()
+        scaled_features = scaler.fit_transform(feature_matrix_imputed)
+
+        # --- 4. PCA AUF FEATURES (Standard) ---
+        logger.info("Starte PCA auf Features...")
+        pca = SklearnPCA(n_components=0.95, svd_solver='full', random_state=42)
+        scores_np = pca.fit_transform(scaled_features)
+        
+        optimal_pcs_gefunden = pca.n_components_
+        logger.info(f"PCA fertig. {optimal_pcs_gefunden} PCs genutzt.")
+
+        # --- 5. SOM CLUSTERING ---
+        logger.info("Starte SOM-Training...")
+        
+        # EINSTELLUNGEN:
+        # Ein 3x3 Gitter ergibt 9 mögliche Cluster (Neuronen).
+        # Benachbarte Nummern sind sich physikalisch ähnlich!
+        map_height = 2 # m
+        map_width = 2  # n
+        
+        # Initialisiere SOM
+        # dim: Anzahl der Dimensionen im Input (unsere PCs)
+        graphen_som = SOM(m=map_height, n=map_width, dim=optimal_pcs_gefunden, lr=0.5, random_state=42) # type: ignore
+        
+        # Trainiere SOM (fit) und sage Cluster vorher (predict)
+        # epochs=5 sorgt für stabilere Karten
+        graphen_som.fit(scores_np, epochs=5) 
+        
+        # Predict gibt jedem Punkt eine Zahl von 0 bis (m*n - 1)
+        graphen_cluster_labels = graphen_som.predict(scores_np)
+        
+        logger.info("SOM-Training abgeschlossen.")
+
+        # --- 6. ERGEBNISSE ZUSAMMENFÜHREN (Standard) ---
+        final_cluster_map_1d = np.full(h*w, np.nan)
+        SUBSTRAT_LABEL = -1 # Wir nehmen -1 für Substrat
+        
+        final_cluster_map_1d[substrat_mask_1d] = SUBSTRAT_LABEL
+        final_cluster_map_1d[graphen_mask_1d] = graphen_cluster_labels
+        final_cluster_map_2d = final_cluster_map_1d.reshape((h, w))
+
+        # --- 7. IDENTIFIZIERUNG (Standard) ---
+        unique_final_labels = sorted([label for label in np.unique(final_cluster_map_1d) if not np.isnan(label)])
+        
+        mean_spectra_graphen = []
+        mean_spectra_silizium = []
+        gefundene_cluster_ids = []
+
+        for label in unique_final_labels:
+            cluster_mask_1d = (final_cluster_map_1d == label)
+            cluster_mask_2d = cluster_mask_1d.reshape((h, w))
+            if np.any(cluster_mask_2d):
+                mean_spectra_graphen.append(karte_graphen[cluster_mask_2d].mean)
+                mean_spectra_silizium.append(karte_silizium[cluster_mask_2d].mean)
+                gefundene_cluster_ids.append(int(label))
+        
+        # Ihre Identifizierungs-Funktion funktioniert auch hier perfekt!
+        neue_labels_map = identifiziere_cluster(mean_spectra_graphen,
+                                           mean_spectra_silizium, 
+                                           gefundene_cluster_ids, 
+                                           substrat_label=SUBSTRAT_LABEL)
+        
+        finale_plot_labels = [f"Neuron {original_id}: {neue_labels_map.get(f'Cluster {i}', 'Unbekannt')}"
+                              for i, original_id in enumerate(gefundene_cluster_ids)]
+        
+        # Y-Limit für Plot
+        global_max_intensity = 0
+        for spectrum in mean_spectra_graphen:
+             if spectrum.spectral_data.size > 0:
+                current_max = np.max(spectrum.spectral_data)
+                if current_max > global_max_intensity: 
+                    global_max_intensity = current_max
+        plot_ylim = global_max_intensity * 1.1
+
+        return {
+            "success": True,
+            "cluster_map": final_cluster_map_2d,
+            "unique_labels": unique_final_labels,
+            "mean_spectra": mean_spectra_graphen,
+            "plot_labels": finale_plot_labels,
+            "y_limit": plot_ylim,
+            "map_title": f"Finale Cluster-Karte (SOM {map_height}x{map_width})",
+            "feature_maps": feature_maps_2d,
+            "feature_names": feature_names
+        }
+
+    except Exception as e:
+        logger.error(f"FEHLER bei SOM: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"success": False, "error": str(e)}
+
+    finally:
+        if 'temp_file_path' in locals() and os.path.exists(temp_file_path): # type: ignore
+            os.remove(temp_file_path) # type: ignore
