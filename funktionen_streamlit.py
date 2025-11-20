@@ -911,10 +911,6 @@ def run_pca_dbscan_analysis(file_bytes):
             logger.info(f"Temporäre Datei gelöscht: {temp_file_path}")  # type: ignore
 
 def run_feature_engineering_som_analysis(file_bytes):
-    """
-    Führt eine SOM-Analyse (Self-Organizing Map) auf den PCA-Scores der Features durch.
-    Pipeline: Features -> PCA -> SOM
-    """
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mat") as temp_file:
             temp_file.write(file_bytes)
@@ -983,8 +979,8 @@ def run_feature_engineering_som_analysis(file_bytes):
         # EINSTELLUNGEN:
         # Ein 3x3 Gitter ergibt 9 mögliche Cluster (Neuronen).
         # Benachbarte Nummern sind sich physikalisch ähnlich!
-        map_height = 2 # m
-        map_width = 2  # n
+        map_height = 3 # m
+        map_width = 3  # n
         
         # Initialisiere SOM
         # dim: Anzahl der Dimensionen im Input (unsere PCs)
