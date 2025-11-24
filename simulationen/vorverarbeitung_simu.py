@@ -21,7 +21,7 @@ def save_plot(x, y, title, filename, show_baseline=None, annotate_spike=False):
                      color='red')
 
     plt.title(title, fontsize=12, fontweight='bold', loc='left')
-    plt.xlabel('Wellenzahl ($\mathrm{cm}^{-1}$)', fontsize=11)
+    plt.xlabel('Wellenzahl ($\mathrm{cm}^{-1}$)', fontsize=11) # type: ignore
     plt.ylabel('Intensität (a.u.)', fontsize=11)
     plt.grid(True, linestyle=':', alpha=0.6)
     plt.tight_layout()
