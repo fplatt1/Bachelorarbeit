@@ -32,16 +32,6 @@ G_BASELINE_FENSTER_LINKS = (1450, 1550)
 G_BASELINE_FENSTER_RECHTS = (1620, 1720)
 
 def plot_3d_cluster_space(pca_scores, labels, algorithm_name, opacity=0.6):
-    """
-    Erstellt einen interaktiven 3D-Scatterplot der ersten 3 Hauptkomponenten.
-    
-    Args:
-        pca_scores (np.array): Das Array mit den PCA-Scores (mindestens 3 Spalten).
-        labels (np.array): Die Cluster-Labels für jeden Punkt.
-        algorithm_name (str): Name des Algorithmus (für den Titel).
-        opacity (float): Transparenz der Punkte (0 bis 1), hilft bei dichten Wolken.
-    """
-    
     # 1. Daten in einen DataFrame umwandeln für Plotly
     # Wir nehmen nur die ersten 3 PCs, da wir nur 3D plotten können
     df = pd.DataFrame(pca_scores[:, :3], columns=['PC1', 'PC2', 'PC3'])
@@ -335,14 +325,11 @@ def K_Mean(valid_mask_1d, scores, h, w):
     pca_scores_for_clustering = np.array(scores).T
 
     # Bestimme optimales K mittels Silhouetten-Analyse
-    optimal_k = finde_optimales_k(pca_scores_for_clustering, k_max=10)
-
-    # immer ein K mehr verwenden als durch Silhouette vorgeschlagen
-    chosen_k = optimal_k
+    chosen_k = finde_optimales_k(pca_scores_for_clustering, k_max=10)
     # Grenzen: mindestens 2, höchstens 10 (wie in finde_optimales_k)
     chosen_k = max(2, min(chosen_k, 10))
 
-    logger.info(f"Silhouette-optimales K={optimal_k}; verwende K={chosen_k} für finalen K-Means.")
+    logger.info(f"Silhouette-optimales K={chosen_k}; verwende K={chosen_k} für finalen K-Means.")
     kmeans_model = KMeans(n_clusters=chosen_k, random_state=42, n_init="auto")
     cluster_labels = kmeans_model.fit_predict(pca_scores_for_clustering)
     return cluster_labels
@@ -606,7 +593,7 @@ def run_feature_engineering_k_mean_analysis(file_bytes):
             temp_file.write(file_bytes)
             temp_file_path = temp_file.name
 
-        # --- 1. DATENLADEN & FILTERN (unverändert zu Listing 3.6) ---
+        # --- 1. DATENLADEN & FILTERN ---
         logger.info("Starte Vorverarbeitung...")
         valid_mask_1d, karte_silizium, karte_graphen, h, w = \
             Laden_Vorverarbeitung(temp_file_path)
@@ -616,7 +603,7 @@ def run_feature_engineering_k_mean_analysis(file_bytes):
             karte_graphen, valid_mask_1d, h, w)
         logger.info(f"  {np.sum(graphen_mask_1d)} Graphen-Spektren und {np.sum(substrat_mask_1d)} Substrat-Spektren gefunden.")
 
-        # --- 2. FEATURE ENGINEERING (ersetzt die alte PCA-Funktion  (p28-29)) ---
+        # --- 2. FEATURE ENGINEERING ---
         logger.info("Starte Feature Engineering (Parallel-Extraktion)...")
         
         # Bereite die Daten für die parallele Verarbeitung vor
@@ -666,34 +653,33 @@ def run_feature_engineering_k_mean_analysis(file_bytes):
         imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
         feature_matrix_imputed = imputer.fit_transform(feature_matrix)
         
-        # Skaliere die Features (extrem wichtig für Clustering!)
+        # Skaliere die Features
         scaler = StandardScaler()
         scaled_features = scaler.fit_transform(feature_matrix_imputed)
 
-        # --- 4. PCA AUF FEATURES (Wie von Ihnen gewünscht) ---
-        # Diese PCA  (p27-29) ist jetzt sauber (6 Dimensionen -> 3-4)
+        # --- 4. PCA AUF FEATURES ---
+        # Diese PCA ist jetzt sauber (6 Dimensionen -> 3-4)
         logger.info("Starte PCA auf extrahierten Features...")
-        # n_components=0.95 (95% Varianz)  (p27) und svd_solver='full' (da D < N)
+        # n_components=0.95 (95% Varianz) und svd_solver='full' (da D < N)
         pca = SklearnPCA(n_components=0.95, svd_solver='full', random_state=42)
         scores_np = pca.fit_transform(scaled_features)
         
         optimal_pcs_gefunden = pca.n_components_
         logger.info(f"PCA auf Features abgeschlossen. {optimal_pcs_gefunden} PCs erklären 95% der Varianz.")
         
-        # K-Means (Listing 3.5)  (p30) erwartet (Features, Samples), also transponieren
+        # K-Means erwartet (Features, Samples), also transponieren
         final_scores = scores_np.T
 
-        # --- 5. K-MEANS CLUSTERING (identisch zu Listing 3.6, Zeile 11)  (p31) ---
+        # --- 5. K-MEANS CLUSTERING ---
         logger.info("Starte K-Means-Clustering auf Feature-Scores...")
         graphen_cluster_labels = K_Mean(graphen_mask_1d, final_scores, h, w) 
-        # (K_Mean  (p30) enthält bereits Silhouetten-Analyse  (p29) etc.)
 
         plot_3d_cluster_space(scores_np, graphen_cluster_labels, "K-Means")
 
-        # --- 6. ERGEBNISSE BERECHNEN (identisch zu Listing 3.6)  (p31-32) ---
+        # --- 6. ERGEBNISSE BERECHNEN ---
         logger.info("Kombiniere Ergebnisse zu finaler Cluster-Karte...")
         final_cluster_map_1d = np.full(h*w, np.nan)
-        SUBSTRAT_LABEL = 0 # Ihr K-Means Substrat-Label aus Listing 3.6  (p31)
+        SUBSTRAT_LABEL = 0
         final_cluster_map_1d[substrat_mask_1d] = SUBSTRAT_LABEL
         final_cluster_map_1d[graphen_mask_1d] = graphen_cluster_labels + 1 # +1, da 0 für Substrat reserviert ist
         
@@ -725,7 +711,7 @@ def run_feature_engineering_k_mean_analysis(file_bytes):
         finale_plot_labels = [f"Cluster {original_id}: {neue_labels_map.get(f'Cluster {i}', 'Unbekannt')}"
                               for i, original_id in enumerate(gefundene_cluster_ids)]
 
-        # (Y-Limit-Berechnung aus Listing 3.6  (p31))
+        # Y-Limit-Berechnung für einheitliche Darstellung
         global_max_intensity = 0
         for spectrum in mean_spectra_graphen:
             if spectrum.spectral_data.size > 0:
@@ -1018,7 +1004,6 @@ def run_feature_engineering_som_analysis(file_bytes):
                 mean_spectra_silizium.append(karte_silizium[cluster_mask_2d].mean)
                 gefundene_cluster_ids.append(int(label))
         
-        # Ihre Identifizierungs-Funktion funktioniert auch hier perfekt!
         neue_labels_map = identifiziere_cluster(mean_spectra_graphen,
                                            mean_spectra_silizium, 
                                            gefundene_cluster_ids, 

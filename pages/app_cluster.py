@@ -137,7 +137,7 @@ with st.expander("Analyse-Log anzeigen (Terminal-Ausgabe)"):
         logs = f.read()
     st.text_area("Log", logs, height=300)
 
-# --- HAUPT-ERGEBNIS LOGIK (KORRIGIERT) ---
+# --- HAUPT-ERGEBNIS LOGIK ---
 if results and results["success"]:
     st.success("Analyse erfolgreich abgeschlossen!")
 
