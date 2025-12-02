@@ -60,8 +60,7 @@ def plot_3d_cluster_space(pca_scores, labels, algorithm_name, opacity=0.6):
         # Diskrete Farbskala nutzen
         color_discrete_sequence=px.colors.qualitative.G10 
     )
-
-    # 4. Styling für wissenschaftliche Publikation (Weißer Hintergrund, klare Achsen)
+    # 4. Layout anpassen für bessere Sichtbarkeit
     fig.update_layout(
         scene=dict(
             xaxis_title='PC1',
@@ -902,14 +901,14 @@ def run_feature_engineering_som_analysis(file_bytes):
             temp_file.write(file_bytes)
             temp_file_path = temp_file.name
 
-        # --- 1. DATENLADEN & FILTERN (Standard) ---
+        # --- 1. DATENLADEN & FILTERN ---
         logger.info("Starte Vorverarbeitung...")
         valid_mask_1d, karte_silizium, karte_graphen, h, w = Laden_Vorverarbeitung(temp_file_path)
         
         logger.info("Filtere Spektren: Trenne Graphen von Substrat...")
         graphen_mask_1d, substrat_mask_1d = filtere_graphen_spektren(karte_graphen, valid_mask_1d, h, w)
 
-        # --- 2. FEATURE ENGINEERING (Standard) ---
+        # --- 2. FEATURE ENGINEERING ---
         logger.info("Starte Feature Engineering (Parallel)...")
         graphen_spektren_daten = karte_graphen.spectral_data[graphen_mask_1d.reshape((h, w))]   # type: ignore
         spectral_axis = karte_graphen.spectral_axis # type: ignore
@@ -921,7 +920,7 @@ def run_feature_engineering_som_analysis(file_bytes):
         )
         feature_matrix = np.array(feature_list)
         
-        # Definiere Feature-Namen (WICHTIG FÜR APP)
+        # Definiere Feature-Namen
         feature_names = [
             "I(D)/I(G)",
             "FWHM(2D)",
@@ -944,14 +943,14 @@ def run_feature_engineering_som_analysis(file_bytes):
             logger.warning("Feature-Maps konnten nicht erstellt werden.")
 
 
-        # --- 3. BEREINIGEN & SKALIEREN (Standard) ---
+        # --- 3. BEREINIGEN & SKALIEREN ---
         imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
         feature_matrix_imputed = imputer.fit_transform(feature_matrix)
         
         scaler = StandardScaler()
         scaled_features = scaler.fit_transform(feature_matrix_imputed)
 
-        # --- 4. PCA AUF FEATURES (Standard) ---
+        # --- 4. PCA AUF FEATURES ---
         logger.info("Starte PCA auf Features...")
         pca = SklearnPCA(n_components=0.95, svd_solver='full', random_state=42)
         scores_np = pca.fit_transform(scaled_features)
@@ -969,7 +968,7 @@ def run_feature_engineering_som_analysis(file_bytes):
         map_width = 3  # n
         
         # Initialisiere SOM
-        # dim: Anzahl der Dimensionen im Input (unsere PCs)
+        # dim: Anzahl der Dimensionen im Inputraum (hier: optimale PCs)
         graphen_som = SOM(m=map_height, n=map_width, dim=optimal_pcs_gefunden, lr=0.5, random_state=42) # type: ignore
         
         # Trainiere SOM (fit) und sage Cluster vorher (predict)
@@ -981,7 +980,7 @@ def run_feature_engineering_som_analysis(file_bytes):
         
         logger.info("SOM-Training abgeschlossen.")
 
-        # --- 6. ERGEBNISSE ZUSAMMENFÜHREN (Standard) ---
+        # --- 6. ERGEBNISSE ZUSAMMENFÜHREN ---
         final_cluster_map_1d = np.full(h*w, np.nan)
         SUBSTRAT_LABEL = -1 # Wir nehmen -1 für Substrat
         
@@ -989,7 +988,7 @@ def run_feature_engineering_som_analysis(file_bytes):
         final_cluster_map_1d[graphen_mask_1d] = graphen_cluster_labels
         final_cluster_map_2d = final_cluster_map_1d.reshape((h, w))
 
-        # --- 7. IDENTIFIZIERUNG (Standard) ---
+        # --- 7. IDENTIFIZIERUNG ---
         unique_final_labels = sorted([label for label in np.unique(final_cluster_map_1d) if not np.isnan(label)])
         
         mean_spectra_graphen = []

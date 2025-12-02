@@ -36,7 +36,7 @@ def analyze(file_bytes, analysis_method: str):
 
 
 def plot_cluster_map(cluster_map, unique_labels):
-    # 1. Dimensionen holen (genau wie bei Feature Map)
+    # 1. Dimensionen holen
     num_rows, num_cols = cluster_map.shape
 
     fig = go.Figure()
@@ -141,7 +141,7 @@ with st.expander("Analyse-Log anzeigen (Terminal-Ausgabe)"):
 if results and results["success"]:
     st.success("Analyse erfolgreich abgeschlossen!")
 
-    # 1. Feature-Maps (Optional anzeigen, wenn vorhanden)
+    # 1. Feature-Maps
     if results.get("feature_names") and results.get("feature_maps") is not None:
         st.subheader("Feature-Maps (vor PCA)")
         feature_names = results["feature_names"]
@@ -183,7 +183,7 @@ if results and results["success"]:
 
         st.plotly_chart(plot_feature_map(feature_map, f"Feature: {chosen}"), use_container_width=False)
 
-    # 2. Cluster-Karte (Wird jetzt immer angezeigt, wenn success=True)
+    # 2. Cluster-Karte (Wird immer angezeigt, wenn success=True)
     st.subheader("Cluster-Karte")
     if results.get("cluster_map") is not None:
         fig_map = plot_cluster_map(
@@ -193,7 +193,7 @@ if results and results["success"]:
     else:
         st.warning("Keine Cluster-Karte verfügbar.")
 
-    # 3. Mittlere Spektren (Wird jetzt immer angezeigt, wenn success=True)
+    # 3. Mittlere Spektren (Wird immer angezeigt, wenn success=True)
     st.subheader("Mittlere Spektren")
     if results.get("mean_spectra") is not None:
         fig_spectra = plot_mean_spectra(
