@@ -38,41 +38,63 @@ def analyze(file_bytes, analysis_method: str):
 def plot_cluster_map(cluster_map, unique_labels):
     # 1. Dimensionen holen
     num_rows, num_cols = cluster_map.shape
+    
+    # Verhältnis berechnen, um die perfekte Breite zu finden
+    aspect_ratio = num_cols / num_rows
+    
+    # Basis-Höhe festlegen
+    base_height = 700
+    calculated_width = int(base_height * aspect_ratio) + 120
 
     fig = go.Figure()
     fig.add_trace(
         go.Heatmap(
             z=np.flipud(cluster_map),
             colorscale="Viridis",
-            # Einziger Unterschied zur Feature-Map: 
-            # Wir formatieren die Legende für ganze Zahlen (Cluster 0, 1, 2...)
             colorbar=dict(
                 title="Cluster",
+                title_side="top",
+                title_font=dict(size=28),   # Überschrift
+                tickfont=dict(size=20),     # Zahlen (0, 1, 2...)
+                
                 tickmode='array',
                 tickvals=unique_labels,
-                ticktext=[str(l) for l in unique_labels]  # noqa: E741
+                ticktext=[str(l) for l in unique_labels],  # noqa: E741
+                
+                # Positionierung
+                xpad=0,         # Kein Abstand
+                thickness=40,   # Balken noch breiter für die große Schrift
+                len=1.0         
             )
         )
     )
     
-    # 2. Layout exakt von deiner funktionierenden Feature-Map übernommen
+    # 2. Layout
     fig.update_layout(
-        width=800, 
-        height=800, 
+        height=base_height,
+        width=calculated_width, 
         
-        
-        # X-Achse begrenzen
+        # Ränder minimieren
+        margin=dict(l=10, r=10, t=60, b=10), # t=60 für Platz der großen Cluster-Überschrift
+
         xaxis=dict(
             range=[0, num_cols - 1],
-            constrain="domain" # Verhindert Whitespace
+            constrain="domain",
+            showticklabels=False, 
+            ticks="",
+            showgrid=False,
+            zeroline=False
         ),
         
-        # Y-Achse an X koppeln und begrenzen
         yaxis=dict(
             scaleanchor="x", 
             scaleratio=1,
             range=[0, num_rows - 1],
-            constrain="domain"
+            constrain="domain",
+            showticklabels=False, 
+            ticks="",
+            showgrid=False,
+            zeroline=False
         )
     )
     
