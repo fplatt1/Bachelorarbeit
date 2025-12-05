@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 # ------------------------
 np.random.seed(42) # Für Reproduzierbarkeit
 
-# Wir erzeugen zwei "Cluster" (ähnlich wie deine Graphen-Daten im Feature-Space)
+# Wir erzeugen zwei "Cluster"
 # Das symbolisiert z.B. "Monolage" und "Substrat"
 data_cluster_1 = np.random.normal(loc=[0.3, 0.7], scale=0.08, size=(200, 2))
 data_cluster_2 = np.random.normal(loc=[0.7, 0.3], scale=0.08, size=(200, 2))
@@ -25,7 +25,7 @@ weights_initial = weights.copy() # Speichern für den "Vorher"-Plot
 
 # 2. DER SOM-ALGORITHMUS (Iteratives Training)
 # --------------------------------------------
-# Dies implementiert exakt deine Beschreibung: Wettbewerb -> Kooperation -> Anpassung
+# Dies implementiert exakt die Beschreibung: Wettbewerb -> Kooperation -> Anpassung
 
 for epoch in range(epochs):
     # Zerfallsrate für Lernrate und Radius (werden kleiner mit der Zeit)

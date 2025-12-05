@@ -58,7 +58,7 @@ save_plot(spectrum_obj.spectral_axis, spectrum_obj.spectral_data,
           "Rohdaten", "1_Rohdaten.png", annotate_spike=True)
 
 
-# -- STUFE 2: Whitaker-Hayes (Exakt wie in Listing C.1) --
+# -- STUFE 2: Whitaker-Hayes --
 # Wir wenden den Filter an und holen uns das Ergebnis als neues Objekt
 despiker = rp.preprocessing.despike.WhitakerHayes()
 spectrum_despiked = despiker.apply(spectrum_obj)
@@ -67,7 +67,7 @@ save_plot(spectrum_despiked.spectral_axis, spectrum_despiked.spectral_data,  # t
           "Nach Whitaker-Hayes (Despiking)", "2_Despiked.png")
 
 
-# -- STUFE 3: Gauß-Filter (Exakt wie in Listing C.1) --
+# -- STUFE 3: Gauß-Filter --
 denoiser = rp.preprocessing.denoise.Gaussian() # Ggf. Parameter anpassen: std=...
 spectrum_denoised = denoiser.apply(spectrum_despiked)
 
@@ -87,7 +87,7 @@ save_plot(spectrum_denoised.spectral_axis, spectrum_denoised.spectral_data,  # t
           show_baseline=calculated_baseline)
 
 
-# -- STUFE 4: Finales Spektrum (schon berechnet) --
+# -- STUFE 4: Finales Spektrum --
 save_plot(spectrum_final.spectral_axis, spectrum_final.spectral_data,  # type: ignore
           "Finales Spektrum (Baseline korrigiert)", "4_Final.png")
 
