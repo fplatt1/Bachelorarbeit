@@ -83,9 +83,6 @@ def plot_mean_spectra(mean_spectra, plot_labels, y_limit):
     fig = go.Figure()
 
     for spectrum, label in zip(mean_spectra, plot_labels, strict=True):
-        # --- DER TRICK GEGEN ÜBERLAPPUNG ---
-        # Wir fügen Leerzeichen am Ende des Labels hinzu. 
-        # Das zwingt Plotly, horizontalen Abstand zu halten.
         padded_label = label + "      "   # 6 Leerzeichen Puffer
         
         fig.add_trace(
@@ -113,19 +110,12 @@ def plot_mean_spectra(mean_spectra, plot_labels, y_limit):
             font=dict(size=20),
             orientation="h",
             yanchor="top",
-            # Wir schieben die Legende noch weiter nach unten
-            y=-0.3,   # Vorher war es -0.2
+            y=-0.3,
             xanchor="center",
             x=0.5,
-            # Optional: Ein Rahmen hilft manchmal bei der visuellen Trennung
-            # bordercolor="Black",
-            # borderwidth=1,
-            # bgcolor="rgba(255,255,255,0.9)" # Fast weißer Hintergrund
+
         ),
-        # --- DAS WICHTIGSTE GEGEN ABSCHNEIDEN ---
-        # Der untere Rand (b) muss massiv vergrößert werden, 
-        # um Platz für die große Legende zu schaffen.
-        margin=dict(l=60, r=20, t=40, b=360), # b=200 statt b=100
+        margin=dict(l=60, r=20, t=40, b=360),
         width=1000,
         height=700
     )
