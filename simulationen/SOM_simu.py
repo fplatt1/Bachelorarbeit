@@ -35,7 +35,7 @@ class SimpleSOM:
         influence = influence[:, :, np.newaxis]
         self.weights += learning_rate * influence * (sample - self.weights)
 
-# --- 2. Daten Generierung (Zwei Blobs wie in deinem Beispiel) ---
+# --- 2. Daten Generierung ---
 np.random.seed(42)
 # Cluster 1
 data1 = np.random.normal(loc=[0.2, 0.2], scale=0.1, size=(200, 2))
